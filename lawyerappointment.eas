@@ -1,0 +1,80 @@
+@compiler >=6
+include "String.aes"
+
+contract LawyerAppointment =
+
+    record state = {
+        lawyer: address,
+        clients: map(int, client),
+        appointments: map(int, appointment),
+        registrationFee: int
+        }
+
+    record client = {
+        firstName: string,
+        lastName: string,
+        age: int,
+        gender: string,
+        isPaid: bool,
+        isVisited: bool,
+        clientAddress: address
+        }
+
+    record appointment = {
+        client_id: int,
+        appointmentDate: int,
+        isCancelled: bool
+        }
+
+    entrypoint init(registrationFee: int): state =
+        {lawyer = Call.caller, clients = {}, appointments = {}, registrationFee = registrationFee}
+
+    payable stateful entrypoint bookappointment(firstName: string, lastName: string, age: int, gender: string, appointmentDate: int): int =
+        let client_id = Map.size(state.clients) + 1
+        let new_client = {
+            firstName = firstName,
+            lastName = lastName,
+            age = age,
+            gender = gender,
+            isPaid = false,
+            isVisited = false,
+            clientAddress = Call.caller
+            }
+        let new_appointment = {
+            client_id = client_id,
+            appointmentDate = appointmentDate,
+            isCancelled = false
+            }
+        Chain.spend(state.lawyer, state.registrationFee)
+        put(state{clients[client_id] = new_client, appointments[client_id] = new_appointment})
+        client_id
+
+    private function only_lawyer() =
+        require(Call.caller == state.lawyer, "Only the lawyer can call this function")
+
+    stateful entrypoint clientvisited(client_id: int) =
+        only_lawyer()
+        require(Map.member(client_id, state.clients), "Client not found")
+        put(state{clients[client_id].isVisited = true})
+
+    entrypoint getclientdetail(client_id: int): client =
+        require(Map.member(client_id, state.clients), "Client not found")
+        state.clients[client_id]
+
+    payable stateful entrypoint undoVisitAndRefund(client_id: int) =
+        only_lawyer()
+        require(Map.member(client_id, state.clients), "Client not found")
+        let client = state.clients[client_id]
+        require(client.isVisited == false, "Client has already visited")
+        Chain.spend(client.clientAddress, state.registrationFee)
+        put(state{clients[client_id].isVisited = false})
+
+    stateful entrypoint cancelAppointment(client_id: int) =
+        only_lawyer() 
+        require(Map.member(client_id, state.appointments), "Appointment not found")
+        let appointment = state.appointments[client_id]
+        require(appointment.isCancelled == false, "Appointment is already cancelled")
+        put(state{appointments[client_id].isCancelled = true})
+
+    entrypoint getAllAppointments(): map(int, appointment) =
+        state.appointments
